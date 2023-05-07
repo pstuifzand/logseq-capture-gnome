@@ -1,4 +1,4 @@
-# logseq-capature-gnome
+# logseq-capture-gnome
 
 This is a Python script that shows a textarea with which you can capture a note for Logseq.
 
