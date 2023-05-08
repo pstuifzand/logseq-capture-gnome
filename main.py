@@ -68,25 +68,56 @@ class MainWindow(Gtk.ApplicationWindow):
         buffer = self.textarea.get_buffer()
         text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
 
-        # Find current journal page
-        query = """
-         [:find (pull ?p [*])
-         :in $ ?start
-         :where
-         [?b :block/page ?p]
-         [?p :block/journal? true]
-         [?p :block/journal-day ?d]
-         [(= ?d ?start)]]
-        """
-        page = logseqCommand(self.token, "logseq.DB.datascriptQuery", [query, ":today"])
-        uuid = page[0][0]['uuid']
+        # Find block on current journal page
+        parent = "#Log"
+        logseqBlock = logseqFindBlock(self.token, parent)
+        if not logseqBlock:
+            page = logseqJournal(self.token)
+            result = logseqCommand(self.token, "logseq.Editor.appendBlockInPage", [page, parent])
+            print(result)
+            logseqBlock = result['uuid']
             
         now = datetime.datetime.now()
         text = f"**{now.strftime('%H:%M')}** #inbox {text}"
-        logseqCommand(self.token, "logseq.Editor.insertBlock", [uuid, text])
+        logseqCommand(self.token, "logseq.Editor.insertBlock", [logseqBlock, text])
 
         self.textarea.get_buffer().set_text("")
         self.close()
+
+
+def logseqJournal(token):
+    # Find current journal page
+    query = """
+     [:find (pull ?p [*])
+     :in $ ?start
+     :where
+     [?b :block/page ?p]
+     [?p :block/journal? true]
+     [?p :block/journal-day ?d]
+     [(= ?d ?start)]]
+    """
+    page = logseqCommand(token, "logseq.DB.datascriptQuery", [query, ":today"])
+    uuid = page[0][0]['uuid']
+    return uuid
+
+
+def logseqFindBlock(token, block):
+    query = """
+     [:find (pull ?b [*])
+     :in $ ?start ?parentBlock
+     :where
+     [?b :block/page ?p]
+     [?b :block/content ?parentBlock]
+     [?p :block/journal? true]
+     [?p :block/journal-day ?d]
+     [(= ?d ?start)]]
+     """
+    page = logseqCommand(token, "logseq.DB.datascriptQuery", [query, ":today", '"' + block + '"'])
+    try:
+        uuid = page[0][0]['uuid']
+        return uuid
+    except IndexError:
+        return False
 
 
 def logseqCommand(token, method, args):
