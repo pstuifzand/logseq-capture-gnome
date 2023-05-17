@@ -7,6 +7,8 @@ import requests
 import os
 import datetime
 import json
+import re
+from pprint import pprint
 
 class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
@@ -54,7 +56,11 @@ class MainWindow(Gtk.ApplicationWindow):
         self.box1.append(button)
 
         action = Gio.SimpleAction.new("capture")
-        action.connect("activate", self.on_button_clicked)
+        action.connect("activate", self.on_capture)
+        self.add_action(action)
+
+        action = Gio.SimpleAction.new("captureTodo")
+        action.connect("activate", self.on_capture_todo)
         self.add_action(action)
 
         action = Gio.SimpleAction.new("close")
@@ -63,26 +69,56 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def on_escape_pressed_event(self, action, parameter):
         self.close()
+    
+    def on_capture(self, event, parameter):
+        self.insert_blocks(processText)
+    
+    def on_capture_todo(self, event, parameter):
+        self.insert_blocks(processTODO)
 
-    def on_button_clicked(self, event, parameter):
+    def insert_blocks(self, process):
         buffer = self.textarea.get_buffer()
         text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
 
+        (parent, newBlocks) = process(text)
         # Find block on current journal page
-        parent = "#Log"
         logseqBlock = logseqFindBlock(self.token, parent)
         if not logseqBlock:
             page = logseqJournal(self.token)
             result = logseqCommand(self.token, "logseq.Editor.appendBlockInPage", [page, parent])
-            print(result)
             logseqBlock = result['uuid']
-            
-        now = datetime.datetime.now()
-        text = f"**{now.strftime('%H:%M')}** #inbox {text}"
-        logseqCommand(self.token, "logseq.Editor.insertBlock", [logseqBlock, text])
+
+        result = logseqCommand(self.token, "logseq.Editor.getBlock", [logseqBlock, {'includeChildren': True}])
+        if result['children']:
+            after = result['children'][-1]['uuid']
+            sibling = True
+        else: 
+            after = logseqBlock
+            sibling = False
+
+        batchBlocks = processText(text)
+        logseqCommand(self.token, "logseq.Editor.insertBatchBlock", [after, newBlocks, {'sibling': sibling, 'before': False}])
 
         self.textarea.get_buffer().set_text("")
         self.close()
+
+
+
+def processText(text):
+    parent = "#Log"
+    lines = text.split("\n")
+    now = datetime.datetime.now()
+    firstLine = lines.pop(0)
+    text = f"**{now.strftime('%H:%M')}** #inbox {firstLine}"
+    return (parent, [{'content': text, 'children': [{'content': line} for line in lines]}])
+
+
+def processTODO(text):
+    parent = "#Tasks"
+    lines = text.split("\n")
+    firstLine = lines.pop(0)
+    text = f"TODO {firstLine}"
+    return (parent, [{'content': text, 'children': [{'content': line} for line in lines]}])
 
 
 def logseqJournal(token):
@@ -134,6 +170,7 @@ class MyApp(Adw.Application):
 
     def on_activate(self, app):
         app.set_accels_for_action("win.capture", ["<Control>Return"])
+        app.set_accels_for_action("win.captureTodo", ["<Control><Shift>Return"])
         app.set_accels_for_action("win.close", ["Escape"])
 
         self.win = MainWindow(application=app)
